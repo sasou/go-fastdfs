@@ -1190,6 +1190,7 @@ func (this *Server) Download(w http.ResponseWriter, r *http.Request) {
 		this.NotPermit(w, r)
 		return
 	}
+
 	if Config().EnableCrossOrigin {
 		this.CrossOrigin(w, r)
 	}
@@ -1989,7 +1990,6 @@ func (this *Server) getRequestURI(action string) string {
 	} else {
 		uri = "/" + action
 	}
-	fmt.Println(uri)
 	return uri
 }
 func (this *Server) BuildFileResult(fileInfo *FileInfo, r *http.Request) FileResult {
