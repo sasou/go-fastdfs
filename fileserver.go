@@ -3,22 +3,12 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/md5"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/astaxie/beego/httplib"
-	"github.com/deckarep/golang-set"
-	_ "github.com/eventials/go-tus"
-	"github.com/json-iterator/go"
-	"github.com/nfnt/resize"
-	"github.com/sjqzhang/googleAuthenticator"
-	"github.com/sjqzhang/goutil"
-	log "github.com/sjqzhang/seelog"
-	"github.com/sjqzhang/tusd"
-	"github.com/sjqzhang/tusd/filestore"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/opt"
-	"github.com/syndtr/goleveldb/leveldb/util"
 	"image"
 	"image/jpeg"
 	"image/png"
@@ -45,6 +35,20 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/astaxie/beego/httplib"
+	"github.com/deckarep/golang-set"
+	_ "github.com/eventials/go-tus"
+	"github.com/json-iterator/go"
+	"github.com/nfnt/resize"
+	"github.com/sjqzhang/googleAuthenticator"
+	"github.com/sjqzhang/goutil"
+	log "github.com/sjqzhang/seelog"
+	"github.com/sjqzhang/tusd"
+	"github.com/sjqzhang/tusd/filestore"
+	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/opt"
+	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
 var staticHandler http.Handler
@@ -162,6 +166,8 @@ const (
 	"alarm_url": "",
 	"下载是否需带token": "真假",
 	"download_use_token": false,
+	"隐藏访问地址密匙": "",
+	"download_use_pass": "",
 	"下载token过期时间": "单位秒",
 	"download_token_expire": 600,
 	"是否自动修复": "在超过1亿文件时出现性能问题，取消此选项，请手动按天同步，请查看FAQ",
@@ -270,6 +276,7 @@ type GloablConfig struct {
 	Mail                 Mail     `json:"mail"`
 	AlarmUrl             string   `json:"alarm_url"`
 	DownloadUseToken     bool     `json:"download_use_token"`
+	DownloadUsePass      string   `json:"download_use_pass"`
 	DownloadTokenExpire  int      `json:"download_token_expire"`
 	QueueSize            int      `json:"queue_size"`
 	AutoRepair           bool     `json:"auto_repair"`
@@ -855,6 +862,16 @@ func (this *Server) GetFilePathFromRequest(w http.ResponseWriter, r *http.Reques
 	}
 	return fullpath, smallPath
 }
+
+func (this *Server) GetFilePathFromToken(w http.ResponseWriter, r *http.Request) string {
+	var (
+		token string
+	)
+	token = r.FormValue("token")
+	token = strings.TrimLeft(this.easyDecode(token, Config().DownloadUsePass), "/")
+	return "/" + token
+}
+
 func (this *Server) CheckDownloadAuth(w http.ResponseWriter, r *http.Request) (bool, error) {
 	var (
 		err          error
@@ -1084,6 +1101,82 @@ func (this *Server) DownloadNotFound(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(404)
 	return
 }
+func (this *Server) easyDecode(txt string, key string) string {
+	chars := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-=+"
+	s, err := hex.DecodeString(txt)
+	if err != nil {
+		return ""
+	}
+	txt = string(s)
+	ch := txt[0]
+	nh := strings.IndexByte(chars, ch)
+	key_ch := fmt.Sprintf("%s%s", key, string(ch))
+	mdKey := this.md5V(key_ch)
+	mdKey = mdKey[nh%8 : nh%8+nh%8+7]
+	txt = txt[1:len(txt)]
+	i, j, k := 0, 0, 0
+	var buffer bytes.Buffer
+	for i = 0; i < len(txt); i++ {
+		if k == len(mdKey) {
+			k = 0
+		}
+		j = strings.IndexByte(chars, txt[i]) - nh - int(mdKey[k])
+		k++
+		for j < 0 {
+			j += 64
+		}
+		buffer.WriteByte(chars[j])
+	}
+	b, err := base64.StdEncoding.DecodeString(buffer.String())
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func (this *Server) md5V(str string) string {
+	h := md5.New()
+	h.Write([]byte(str))
+	return hex.EncodeToString(h.Sum(nil))
+}
+func (this *Server) SafeDownload(w http.ResponseWriter, r *http.Request) {
+	var (
+		err       error
+		uri       string
+		ok        bool
+		fullpath  string
+		smallPath string
+		fi        os.FileInfo
+	)
+	if Config().EnableCrossOrigin {
+		this.CrossOrigin(w, r)
+	}
+	uri = this.GetFilePathFromToken(w, r)
+	r.RequestURI = uri
+	r.URL.Path = uri
+	fullpath, smallPath = this.GetFilePathFromRequest(w, r)
+	if smallPath == "" {
+		if fi, err = os.Stat(fullpath); err != nil {
+			this.DownloadNotFound(w, r)
+			return
+		}
+		if !Config().ShowDir && fi.IsDir() {
+			w.Write([]byte("list dir deny"))
+			return
+		}
+		//staticHandler.ServeHTTP(w, r)
+		this.DownloadNormalFileByURI(w, r)
+		return
+	}
+	if smallPath != "" {
+		if ok, err = this.DownloadSmallFileByURI(w, r); !ok {
+			this.DownloadNotFound(w, r)
+			return
+		}
+		return
+	}
+}
+
 func (this *Server) Download(w http.ResponseWriter, r *http.Request) {
 	var (
 		err       error
@@ -1097,7 +1190,6 @@ func (this *Server) Download(w http.ResponseWriter, r *http.Request) {
 		this.NotPermit(w, r)
 		return
 	}
-
 	if Config().EnableCrossOrigin {
 		this.CrossOrigin(w, r)
 	}
@@ -1897,6 +1989,7 @@ func (this *Server) getRequestURI(action string) string {
 	} else {
 		uri = "/" + action
 	}
+	fmt.Println(uri)
 	return uri
 }
 func (this *Server) BuildFileResult(fileInfo *FileInfo, r *http.Request) FileResult {
@@ -3758,6 +3851,7 @@ func (this *Server) Main() {
 	http.HandleFunc(fmt.Sprintf("%s/gen_google_secret", groupRoute), this.GenGoogleSecret)
 	http.HandleFunc(fmt.Sprintf("%s/gen_google_code", groupRoute), this.GenGoogleCode)
 	http.HandleFunc("/"+Config().Group+"/", this.Download)
+	http.HandleFunc("/down/", this.SafeDownload)
 	fmt.Println("Listen on " + Config().Addr)
 	err := http.ListenAndServe(Config().Addr, new(HttpHandler))
 	log.Error(err)
