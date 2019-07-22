@@ -305,6 +305,10 @@ type FileInfoResult struct {
 	ModTime int64  `json:"mtime"`
 	IsDir   bool   `json:"is_dir"`
 }
+type TokenInfo struct {
+	File string `json:"file"`
+	Ttl  int64  `json:"ttl"`
+}
 
 func NewServer() *Server {
 	var (
@@ -863,13 +867,21 @@ func (this *Server) GetFilePathFromRequest(w http.ResponseWriter, r *http.Reques
 	return fullpath, smallPath
 }
 
-func (this *Server) GetFilePathFromToken(w http.ResponseWriter, r *http.Request) string {
+func (this *Server) GetFilePathFromToken(w http.ResponseWriter, r *http.Request) (string, int8) {
 	var (
-		token string
+		token     string
+		err       error
+		tokenInfo TokenInfo
 	)
 	token = r.FormValue("token")
-	token = strings.TrimLeft(this.easyDecode(token, Config().DownloadUsePass), "/")
-	return "/" + token
+	token = this.easyDecode(token, Config().DownloadUsePass)
+	if err = json.Unmarshal([]byte(token), &tokenInfo); err != nil {
+		return "", 1
+	}
+	if tokenInfo.Ttl-time.Now().Unix() < 0 {
+		return "", 2
+	}
+	return "/" + strings.TrimLeft(tokenInfo.File, "/"), 0
 }
 
 func (this *Server) CheckDownloadAuth(w http.ResponseWriter, r *http.Request) (bool, error) {
@@ -1143,6 +1155,7 @@ func (this *Server) SafeDownload(w http.ResponseWriter, r *http.Request) {
 	var (
 		err       error
 		uri       string
+		status    int8
 		ok        bool
 		fullpath  string
 		smallPath string
@@ -1151,7 +1164,11 @@ func (this *Server) SafeDownload(w http.ResponseWriter, r *http.Request) {
 	if Config().EnableCrossOrigin {
 		this.CrossOrigin(w, r)
 	}
-	uri = this.GetFilePathFromToken(w, r)
+	uri, status = this.GetFilePathFromToken(w, r)
+	if status != 0 {
+		w.Write([]byte("无访问权限"))
+		return
+	}
 	r.RequestURI = uri
 	r.URL.Path = uri
 	fullpath, smallPath = this.GetFilePathFromRequest(w, r)
