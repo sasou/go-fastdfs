@@ -818,8 +818,31 @@ func (this *Server) CrossOrigin(w http.ResponseWriter, r *http.Request) {
 	//https://blog.csdn.net/yanzisu_congcong/article/details/80552155
 }
 func (this *Server) SetDownloadHeader(w http.ResponseWriter, r *http.Request) {
+	var (
+		err      error
+		fileInfo *FileInfo
+		pathMd5  string
+	)
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", "attachment")
+	if r.FormValue("token") == "" {
+		w.Header().Set("Content-Disposition", "attachment")
+	} else {
+		fullpath, smallPath := this.GetFilePathFromRequest(w, r)
+		if smallPath != "" {
+			pathMd5 = this.util.MD5(smallPath)
+		} else {
+			pathMd5 = this.util.MD5(fullpath)
+		}
+		if fileInfo, err = this.GetFileInfoFromLevelDB(pathMd5); err != nil {
+			w.Header().Set("Content-Disposition", "attachment")
+		} else {
+			if fileInfo.Name != "" {
+				w.Header().Set("Content-Disposition", "attachment; filename="+url.QueryEscape(fileInfo.Name))
+			} else {
+				w.Header().Set("Content-Disposition", "attachment; filename="+url.QueryEscape(fileInfo.ReName))
+			}
+		}
+	}
 }
 func (this *Server) CheckAuth(w http.ResponseWriter, r *http.Request) bool {
 	var (
