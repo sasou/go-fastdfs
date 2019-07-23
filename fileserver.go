@@ -822,25 +822,22 @@ func (this *Server) SetDownloadHeader(w http.ResponseWriter, r *http.Request) {
 		err      error
 		fileInfo *FileInfo
 		pathMd5  string
+		fullpath string
 	)
 	w.Header().Set("Content-Type", "application/octet-stream")
 	if r.FormValue("token") == "" {
 		w.Header().Set("Content-Disposition", "attachment")
 	} else {
-		fullpath, smallPath := this.GetFilePathFromRequest(w, r)
-		if smallPath != "" {
-			pathMd5 = this.util.MD5(smallPath)
-		} else {
-			pathMd5 = this.util.MD5(fullpath)
-		}
+		fullpath = strings.Replace(r.RequestURI, "/"+Config().Group+"/", STORE_DIR_NAME+"/", 1)
+		pathMd5 = this.util.MD5(fullpath)
 		if fileInfo, err = this.GetFileInfoFromLevelDB(pathMd5); err != nil {
-			w.Header().Set("Content-Disposition", "attachment")
+			log.Error(err)
+			return
+		}
+		if fileInfo.Name != "" {
+			w.Header().Set("Content-Disposition", "attachment; filename="+url.QueryEscape(fileInfo.Name))
 		} else {
-			if fileInfo.Name != "" {
-				w.Header().Set("Content-Disposition", "attachment; filename="+url.QueryEscape(fileInfo.Name))
-			} else {
-				w.Header().Set("Content-Disposition", "attachment; filename="+url.QueryEscape(fileInfo.ReName))
-			}
+			w.Header().Set("Content-Disposition", "attachment")
 		}
 	}
 }
@@ -905,6 +902,35 @@ func (this *Server) GetFilePathFromToken(w http.ResponseWriter, r *http.Request)
 		return "", 2
 	}
 	return "/" + strings.TrimLeft(tokenInfo.File, "/"), 0
+}
+
+func (this *Server) isDownloadType(file string) bool {
+	var (
+		fileExt string
+	)
+	fileExt = strings.ToLower(path.Ext(file))
+	if fileExt == ".gif" {
+		return false
+	}
+	if fileExt == ".png" {
+		return false
+	}
+	if fileExt == ".jpg" {
+		return false
+	}
+	if fileExt == ".jpeg" {
+		return false
+	}
+	if fileExt == ".bmp" {
+		return false
+	}
+	if fileExt == ".pdf" {
+		return false
+	}
+	if fileExt == ".txt" {
+		return false
+	}
+	return true
 }
 
 func (this *Server) CheckDownloadAuth(w http.ResponseWriter, r *http.Request) (bool, error) {
@@ -1021,6 +1047,9 @@ func (this *Server) DownloadSmallFileByURI(w http.ResponseWriter, r *http.Reques
 	if r.FormValue("download") == "" {
 		isDownload = Config().DefaultDownload
 	}
+	if this.isDownloadType(r.RequestURI) {
+		isDownload = true
+	}
 	if r.FormValue("download") == "0" {
 		isDownload = false
 	}
@@ -1066,6 +1095,9 @@ func (this *Server) DownloadNormalFileByURI(w http.ResponseWriter, r *http.Reque
 	isDownload = true
 	if r.FormValue("download") == "" {
 		isDownload = Config().DefaultDownload
+	}
+	if this.isDownloadType(r.RequestURI) {
+		isDownload = true
 	}
 	if r.FormValue("download") == "0" {
 		isDownload = false
