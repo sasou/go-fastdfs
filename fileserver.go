@@ -15,6 +15,7 @@ import (
 	"io"
 	"io/ioutil"
 	slog "log"
+	"math/rand"
 	random "math/rand"
 	"mime/multipart"
 	"net/http"
@@ -1169,16 +1170,15 @@ func (this *Server) DownloadNotFound(w http.ResponseWriter, r *http.Request) {
 	return
 }
 func (this *Server) easyDecode(txt string, key string) string {
-	chars := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-=+"
 	s, err := hex.DecodeString(txt)
 	if err != nil {
 		return ""
 	}
 	txt = string(s)
 	ch := txt[0]
-	nh := strings.IndexByte(chars, ch)
+	nh := int(ch)
 	key_ch := fmt.Sprintf("%s%s", key, string(ch))
-	mdKey := this.md5V(key_ch)
+	mdKey := md5V(key_ch)
 	mdKey = mdKey[nh%8 : nh%8+nh%8+7]
 	txt = txt[1:len(txt)]
 	i, j, k := 0, 0, 0
@@ -1187,18 +1187,29 @@ func (this *Server) easyDecode(txt string, key string) string {
 		if k == len(mdKey) {
 			k = 0
 		}
-		j = strings.IndexByte(chars, txt[i]) - nh - int(mdKey[k])
+		j = int(txt[i]) - nh - int(mdKey[k])
 		k++
 		for j < 0 {
-			j += 64
+			j += 128
 		}
-		buffer.WriteByte(chars[j])
+		buffer.WriteByte(byte(j))
 	}
 	b, err := base64.StdEncoding.DecodeString(buffer.String())
 	if err != nil {
 		return ""
 	}
 	return string(b)
+}
+
+func randInt(min int, max int) int {
+	rand.Seed(int64(time.Now().UnixNano()))
+	return min + rand.Intn(max-min)
+}
+
+func md5V(str string) string {
+	h := md5.New()
+	h.Write([]byte(str))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func (this *Server) md5V(str string) string {
