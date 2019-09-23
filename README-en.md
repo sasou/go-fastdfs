@@ -1,5 +1,5 @@
 # [中文](README.md) [English](README-en.md)
-
+## Vision: Provide users with the most simple, reliable and efficient distributed file system.
 ![logo](doc/logo.png)
 
 
@@ -65,7 +65,7 @@ Note: Please read this article carefully before using it, especially [wiki](http
 - All nodes can read and write simultaneously
 
 
-
+[![asciicast](https://asciinema.org/a/258926.svg)](https://asciinema.org/a/258926)
 #Start the server (compiled, [download](https://github.com/sjqzhang/fastdfs/releases) experience)
 ```
 ./fileserver
