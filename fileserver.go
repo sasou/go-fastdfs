@@ -958,6 +958,7 @@ func (this *Server) CrossOrigin(w http.ResponseWriter, r *http.Request) {
 }
 func (this *Server) SetDownloadHeader(w http.ResponseWriter, r *http.Request) {
 	var (
+		fileName string
 		err      error
 		fileInfo *FileInfo
 		pathMd5  string
@@ -967,16 +968,21 @@ func (this *Server) SetDownloadHeader(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("token") == "" {
 		w.Header().Set("Content-Disposition", "attachment")
 	} else {
-		fullpath = strings.Replace(r.RequestURI, "/"+Config().Group+"/", STORE_DIR_NAME+"/", 1)
-		pathMd5 = this.util.MD5(fullpath)
-		if fileInfo, err = this.GetFileInfoFromLevelDB(pathMd5); err != nil {
-			log.Error(err)
-			return
-		}
-		if fileInfo.Name != "" {
-			w.Header().Set("Content-Disposition", "attachment; filename="+url.QueryEscape(fileInfo.Name))
+		fileName = r.FormValue("name")
+		if fileName == "" {
+			fullpath = strings.Replace(r.RequestURI, "/"+Config().Group+"/", STORE_DIR_NAME+"/", 1)
+			pathMd5 = this.util.MD5(fullpath)
+			if fileInfo, err = this.GetFileInfoFromLevelDB(pathMd5); err != nil {
+				log.Error(err)
+				return
+			}
+			if fileInfo.Name != "" {
+				w.Header().Set("Content-Disposition", "attachment; filename="+url.QueryEscape(fileInfo.Name))
+			} else {
+				w.Header().Set("Content-Disposition", "attachment")
+			}
 		} else {
-			w.Header().Set("Content-Disposition", "attachment")
+			w.Header().Set("Content-Disposition", "attachment; filename="+url.QueryEscape(fileName))
 		}
 	}
 }
